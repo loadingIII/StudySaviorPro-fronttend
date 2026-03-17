@@ -91,7 +91,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
-            <span v-if="!sidebarCollapsed">{{ chat.title }}</span>
+            <div v-if="!sidebarCollapsed" class="chat-info">
+              <span class="chat-title">{{ chat.title }}</span>
+              <span class="chat-time">{{ formatDate(chat.created_at) }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -331,7 +334,6 @@
             <polyline points="12 6 12 12 16 14"/>
           </svg>
           <span>历史生成</span>
-          <span v-if="historyList.length > 0" class="history-badge">{{ historyList.length }}</span>
         </button>
       </div>
 
@@ -649,13 +651,13 @@
       </header>
 
       <!-- 聊天内容区域 -->
-      <div class="chat-content">
+      <div class="chat-content" ref="messagesContainer" @scroll="handleScroll">
         <div v-if="messages.length === 0" class="welcome-message">
           <h1>你好，我是 AI 助手</h1>
           <p>有什么可以帮助你的吗？</p>
         </div>
 
-        <div class="messages-container" ref="messagesContainer">
+        <div class="messages-container">
           <div 
             v-for="(message, index) in messages" 
             :key="index"
@@ -1004,6 +1006,117 @@ const toastType = ref<'success' | 'error'>('success')
 const isStreamMode = ref(false) // 流式输出开关
 const showAuthError = ref(false) // 认证错误弹窗
 const authErrorMessage = ref('') // 认证错误消息
+const isUserScrolling = ref(false) // 用户是否正在手动滚动
+let scrollTimeout: ReturnType<typeof setTimeout> | null = null // 滚动状态检测防抖定时器
+
+// 获取会话列表
+const loadChatSessions = async () => {
+  try {
+    const token = getToken()
+    console.log('开始加载会话列表，token:', token ? '存在' : '不存在')
+    const response = await fetch('/agent/question/get_chat_sessions', {
+      method: 'GET',
+      headers: {
+        'Authorization': token || ''
+      }
+    })
+    
+    const result = await response.json()
+    console.log('会话列表响应:', result)
+    
+    if (result.code === 1 && result.data && Array.isArray(result.data)) {
+      chatHistory.value = result.data.map((session: any) => ({
+        id: session.id,
+        title: session.title,
+        created_at: session.created_at
+      }))
+      console.log('会话列表已更新:', chatHistory.value)
+    } else {
+      console.warn('会话列表数据格式不正确:', result)
+    }
+  } catch (error) {
+    console.error('获取会话列表失败:', error)
+  }
+}
+
+// 获取会话历史
+const loadChatHistory = async (sessionId: number) => {
+  try {
+    const token = getToken()
+    const response = await fetch(`/agent/question/get_chat_history/${sessionId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': token || ''
+      }
+    })
+    
+    const result = await response.json()
+    console.log('会话历史响应:', result)
+    
+    if (result.code === 1 && result.data && Array.isArray(result.data)) {
+      messages.value = result.data.map((chat: any) => ({
+        role: chat.role === 0 ? 'user' : 'assistant',
+        content: chat.content,
+        time: new Date(chat.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      }))
+    }
+  } catch (error) {
+    console.error('获取会话历史失败:', error)
+  }
+}
+
+// 滚动到底部函数
+const scrollToBottom = (smooth = false, retries = 5, delay = 100) => {
+  const attemptScroll = (attempt: number) => {
+    if (!messagesContainer.value) return
+    
+    const container = messagesContainer.value
+    const targetScrollTop = container.scrollHeight - container.clientHeight
+    
+    // 确保滚动到最底部
+    if (smooth) {
+      container.scrollTo({
+        top: targetScrollTop,
+        behavior: 'smooth'
+      })
+    } else {
+      container.scrollTop = targetScrollTop
+    }
+    
+    // 继续重试以确保内容完全加载后仍然在底部
+    if (attempt < retries) {
+      setTimeout(() => {
+        attemptScroll(attempt + 1)
+      }, delay)
+    }
+  }
+  
+  attemptScroll(0)
+}
+
+// 用户滚动事件处理
+const handleScroll = () => {
+  if (!messagesContainer.value) return
+  
+  const container = messagesContainer.value
+  const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
+  
+  if (!isAtBottom) {
+    isUserScrolling.value = true
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout)
+    }
+    scrollTimeout = setTimeout(() => {
+      isUserScrolling.value = false
+    }, 1000)
+  } else {
+    isUserScrolling.value = false
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout)
+      scrollTimeout = null
+    }
+  }
+}
 
 // 知识库相关数据
 const knowledgeLoading = ref(false)
@@ -1635,28 +1748,37 @@ const toggleSidebar = () => {
 }
 
 onMounted(() => {
+  console.log('=== onMounted 开始执行 ===')
+  console.log('currentModule:', currentModule.value)
   checkMobile()
   window.addEventListener('resize', checkMobile)
-  // 加载知识库文档
+  console.log('准备加载知识库文档...')
   loadKnowledgeDocuments()
+  console.log('准备加载会话列表...')
+  loadChatSessions()
   
-  // 调试：检查变量是否正确初始化
   console.log('ChatView 已挂载')
   console.log('showAuthError 初始值:', showAuthError.value)
   console.log('authErrorMessage 初始值:', authErrorMessage.value)
+  console.log('=== onMounted 执行完毕 ===')
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
+  if (scrollTimeout) {
+    clearTimeout(scrollTimeout)
+    scrollTimeout = null
+  }
 })
 
-const chatHistory = reactive([
-  { id: 1, title: 'Python 问题咨询' },
-  { id: 2, title: '数据分析帮助' },
-  { id: 3, title: '代码优化建议' }
-])
+const chatHistory = ref<Array<{
+  id: number
+  title: string
+  created_at: string
+}>>([])
 
-const currentChatId = ref(1)
+const currentChatId = ref<number | null>(null)
+const newSessionId = ref<string | null>(null) // 存储新建对话的 session_id
 
 const messages = ref([
   {
@@ -1666,13 +1788,48 @@ const messages = ref([
   }
 ])
 
-const startNewChat = () => {
-  messages.value = []
-  currentChatId.value = 0
+const startNewChat = async () => {
+  try {
+    const token = getToken()
+    const response = await fetch('/agent/question/get_new_session_id', {
+      method: 'GET',
+      headers: {
+        'Authorization': token || ''
+      }
+    })
+    
+    const result = await response.json()
+    console.log('新建会话响应:', result)
+    
+    if (result.code === 1 && result.data) {
+      messages.value = []
+      currentChatId.value = 0
+      newSessionId.value = result.data // 存储新的 session_id
+      showMessage('新建会话成功', 'success')
+      await loadChatSessions()
+    } else {
+      console.warn('新建会话失败:', result)
+      showMessage('新建会话失败', 'error')
+    }
+  } catch (error) {
+    console.error('新建会话错误:', error)
+    showMessage('新建会话失败', 'error')
+  }
 }
 
-const selectChat = (id: number) => {
+const selectChat = async (id: number) => {
   currentChatId.value = id
+  newSessionId.value = null // 选中历史会话时清空 newSessionId
+  
+  // 并行加载会话历史和刷新会话列表，减少等待时间
+  await Promise.all([
+    loadChatHistory(id),
+    loadChatSessions()
+  ])
+  
+  nextTick(() => {
+    scrollToBottom(false, 10, 50)
+  })
 }
 
 const currentModule = ref('qa') // 默认选中智能问答
@@ -1706,6 +1863,13 @@ const sendMessage = async () => {
   const question = inputMessage.value
   inputMessage.value = ''
   isSending.value = true
+  
+  isUserScrolling.value = false
+  
+  // 立即滚动到最新消息（用户消息）
+  nextTick(() => {
+    scrollToBottom(true, 5, 100)
+  })
 
   if (isStreamMode.value) {
     await sendStreamMessage(question)
@@ -1717,6 +1881,18 @@ const sendMessage = async () => {
 // 普通消息发送
 const sendNormalMessage = async (question: string) => {
   try {
+    let sessionId: string | number
+    if (currentChatId.value && currentChatId.value !== 0) {
+      // 选中历史会话
+      sessionId = currentChatId.value
+    } else if (newSessionId.value) {
+      // 新建对话，使用存储的 session_id
+      sessionId = newSessionId.value
+    } else {
+      // 默认情况（首次对话）
+      sessionId = 'default_session'
+    }
+    
     const token = getToken()
     const response = await fetch('/agent/question/invoke', {
       method: 'POST',
@@ -1726,6 +1902,7 @@ const sendNormalMessage = async (question: string) => {
       },
       body: JSON.stringify({
         question: question,
+        session_id: sessionId
       })
     })
 
@@ -1767,9 +1944,7 @@ const sendNormalMessage = async (question: string) => {
     isSending.value = false
     
     nextTick(() => {
-      if (messagesContainer.value) {
-        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-      }
+      scrollToBottom(true, 5, 100)
     })
   }
 }
@@ -1786,6 +1961,18 @@ const sendStreamMessage = async (question: string) => {
   let buffer = ''
 
   try {
+    let sessionId: string | number
+    if (currentChatId.value && currentChatId.value !== 0) {
+      // 选中历史会话
+      sessionId = currentChatId.value
+    } else if (newSessionId.value) {
+      // 新建对话，使用存储的 session_id
+      sessionId = newSessionId.value
+    } else {
+      // 默认情况（首次对话）
+      sessionId = 'default_session'
+    }
+    
     const token = getToken()
     const response = await fetch('/agent/question/stream', {
       method: 'POST',
@@ -1795,6 +1982,7 @@ const sendStreamMessage = async (question: string) => {
       },
       body: JSON.stringify({
         question: question,
+        session_id: sessionId
       })
     })
 
@@ -1809,6 +1997,7 @@ const sendStreamMessage = async (question: string) => {
       }
       aiMessage.content = '认证失败，请重新登录'
       isSending.value = false
+      scrollToBottom(true, 5, 100)
       return
     }
 
@@ -1841,6 +2030,14 @@ const sendStreamMessage = async (question: string) => {
               aiMessage.content += data.data.response
               // 强制触发更新
               triggerRef(messages)
+              
+              // 立即滚动（不等待 nextTick）
+              if (!isUserScrolling.value) {
+                // 使用更频繁的小延迟滚动
+                setTimeout(() => {
+                  scrollToBottom(false, 3, 50)
+                }, 0)
+              }
             }
 
             // 检查是否结束
@@ -1855,9 +2052,10 @@ const sendStreamMessage = async (question: string) => {
         }
       }
 
+      // 流式输出过程中，智能自动滚动（仅当用户未手动滚动时）
       nextTick(() => {
-        if (messagesContainer.value) {
-          messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+        if (!isUserScrolling.value) {
+          scrollToBottom(false, 3, 50)
         }
       })
     }
@@ -1884,10 +2082,9 @@ const sendStreamMessage = async (question: string) => {
   } finally {
     isSending.value = false
     
+    // 流式输出完成后，确保滚动到底部
     nextTick(() => {
-      if (messagesContainer.value) {
-        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-      }
+      scrollToBottom(true, 5, 100)
     })
   }
 }
@@ -2197,44 +2394,115 @@ const sendStreamMessage = async (question: string) => {
 .chat-history {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 0;
+  background: transparent;
 }
 
 .history-title {
-  font-size: 12px;
-  color: #8A9A9A;
+  font-size: 14px;
+  color: #1F2937;
   margin-bottom: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  padding: 0 12px;
 }
 
 .history-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .history-item {
-  padding: 12px;
-  border-radius: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  color: #4A5F5F;
+  transition: all 0.2s ease;
+  color: #1F2937;
   font-size: 14px;
+  line-height: 1.5;
   overflow: hidden;
-  white-space: nowrap;
   border: 1px solid transparent;
+  justify-content: flex-start;
+  background: transparent;
+  margin-bottom: 4px;
+}
+
+.history-item:hover {
+  background: #F9FAFB;
+  border-color: #E5E7EB;
+}
+
+.history-item.active {
+  background: #EEF2FF;
+  border-color: #6366F1;
+  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.1);
 }
 
 .history-item svg {
-  width: 18px;
-  height: 18px;
   flex-shrink: 0;
-  color: #A6BDFB;
+  width: 20px;
+  height: 20px;
+  color: #6B7280;
+  margin-top: 2px;
+}
+
+.history-item.active svg {
+  color: #4F46E5;
+}
+
+.chat-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.chat-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.chat-time {
+  font-size: 12px;
+  color: #9CA3AF;
+  text-align: left;
+  line-height: 1;
+}
+
+.history-item.active .chat-title {
+  color: #312E81;
+  font-weight: 600;
+}
+
+.history-item.active .chat-time {
+  color: #6366F1;
+}
+
+.history-item:hover {
+  background: #F3F4F6;
+}
+
+.history-item.active {
+  border: 2px solid #4F46E5;
+  background: #E5E7EB;
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.history-item.active span {
+  color: #111827;
+  font-weight: 700;
 }
 
 /* 智能出题题目类型选择栏 */
@@ -2304,11 +2572,11 @@ const sendStreamMessage = async (question: string) => {
   position: absolute;
   top: 60px;
   right: 24px;
-  width: 400px;
-  max-height: 500px;
+  width: 600px;
+  max-height: 700px;
   background: #FFFFFF;
-  border-radius: 16px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
   border: 2px solid #E8EFFF;
   z-index: 1000;
   overflow: hidden;
@@ -2330,109 +2598,126 @@ const sendStreamMessage = async (question: string) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
+  padding: 32px 32px;
   background: linear-gradient(135deg, #F8FAFF 0%, #F0F4FF 100%);
   border-bottom: 2px solid #E8EFFF;
 }
 
 .history-header h3 {
-  font-size: 16px;
+  font-size: 22px;
   font-weight: 700;
   color: #2D3748;
   margin: 0;
+  letter-spacing: 0.5px;
 }
 
 .close-btn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border: none;
   background: #FFFFFF;
-  border-radius: 8px;
+  border-radius: 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #4A5568;
   transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .close-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
 }
 
 .close-btn:hover {
   background: linear-gradient(135deg, #FF6B6B 0%, #EE5A6F 100%);
   color: #FFFFFF;
   transform: rotate(90deg);
+  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
 }
 
 .history-list {
-  max-height: 420px;
+  max-height: 550px;
   overflow-y: auto;
-  padding: 12px;
+  padding: 28px 32px;
 }
 
 .history-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px;
+  padding: 26px 28px;
   background: #F8FAFF;
-  border-radius: 12px;
-  margin-bottom: 10px;
+  border-radius: 18px;
+  margin-bottom: 20px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border: 2px solid transparent;
 }
 
+.history-item:last-child {
+  margin-bottom: 0;
+}
+
 .history-item:hover {
-  background: #FFFFFF;
-  border-color: #A6BDFB;
-  box-shadow: 0 4px 15px rgba(166, 189, 251, 0.15);
-  transform: translateX(4px);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .history-info {
   flex: 1;
   min-width: 0;
+  margin-right: 20px;
+  text-align: left;
 }
 
 .history-title {
   font-size: 14px;
   font-weight: 600;
   color: #2D3748;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: 0.3px;
+  text-align: left;
 }
 
 .history-meta {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   font-size: 12px;
   color: #718096;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .history-type {
   background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
   color: #1976D2;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
   font-weight: 600;
+  font-size: 12px;
+  box-shadow: 0 2px 4px rgba(25, 118, 210, 0.1);
 }
 
 .history-count {
   background: #EDF2F7;
   color: #4A5568;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
   font-weight: 600;
+  font-size: 12px;
 }
 
 .history-date {
-  flex: 1;
+  font-size: 12px;
+  color: #A0AEC0;
+  font-weight: 500;
+  white-space: nowrap;
+  min-width: 80px;
   text-align: right;
 }
 
@@ -3606,10 +3891,9 @@ const sendStreamMessage = async (question: string) => {
 }
 
 .history-item.active {
-  background: linear-gradient(135deg, #E8EFFF 0%, #F0F6FF 100%);
-  border-color: #A6BDFB;
-  color: #5A7BD6;
-  font-weight: 600;
+  background: rgba(255, 255, 255, 0.12);
+  color: #FFFFFF;
+  font-weight: 500;
 }
 
 .sidebar-footer {
@@ -4157,15 +4441,15 @@ const sendStreamMessage = async (question: string) => {
 .messages-container {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  max-width: 900px;
+  gap: 16px;
+  max-width: 765px;
   margin: 0 auto;
   width: 100%;
 }
 
 .message {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   animation: messageSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -4189,8 +4473,8 @@ const sendStreamMessage = async (question: string) => {
 }
 
 .message-avatar svg {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
 }
 
 .message-content {
@@ -4202,13 +4486,14 @@ const sendStreamMessage = async (question: string) => {
 }
 
 .message.user .message-content {
+  max-width: 85%;
   align-items: flex-end;
 }
 
 .message-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .message.user .message-header {
@@ -4247,6 +4532,8 @@ const sendStreamMessage = async (question: string) => {
   border-bottom-right-radius: 4px;
   box-shadow: 0 4px 16px rgba(107, 141, 255, 0.35);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 10px 14px;
+  text-align: left;
 }
 
 .message.user .message-text:hover {
@@ -4346,17 +4633,17 @@ const sendStreamMessage = async (question: string) => {
 
 /* Markdown 内容样式 */
 .message.assistant .message-text {
-  padding: 18px 22px;
+  padding: 10px 14px;
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.6;
   color: #4A5568;
   text-align: left;
   word-break: break-word;
 }
 
 .message.assistant .message-text :deep(p) {
-  margin: 8px 0;
-  line-height: 1.8;
+  margin: 4px 0;
+  line-height: 1.7;
 }
 
 .message.assistant .message-text :deep(h1),
@@ -4959,7 +5246,7 @@ textarea::placeholder {
   }
   
   .messages-container {
-    max-width: 800px;
+    max-width: 680px;
   }
   
   .input-container {
@@ -5101,7 +5388,7 @@ textarea::placeholder {
 /* 确保移动端触摸友好 */
 @media (hover: none) and (pointer: coarse) {
   .history-item {
-    padding: 14px;
+    padding: 10px 12px;
   }
   
   .header-btn,
