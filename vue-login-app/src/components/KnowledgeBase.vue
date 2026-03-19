@@ -221,6 +221,28 @@
         <p>释放以上传文件</p>
       </div>
     </div>
+
+    <!-- 文件上传加载画面 -->
+    <div v-if="isUploading" class="upload-loading-overlay">
+      <div class="upload-loading-content">
+        <div class="upload-spinner-container">
+          <div class="upload-spinner">
+            <div class="spinner-ring"></div>
+            <div class="spinner-ring"></div>
+            <div class="spinner-ring"></div>
+          </div>
+          <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <div class="upload-loading-text">
+          <p class="upload-status">文件上传中，请稍候...</p>
+          <p class="upload-filename">{{ uploadingFileName }}</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -258,6 +280,8 @@ const showDeleteModal = ref(false)
 const documentToDelete = ref<Document | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
+const isUploading = ref(false)
+const uploadingFileName = ref('')
 
 // 文档数据
 const documents = ref<Document[]>([])
@@ -327,6 +351,9 @@ const handleFileChange = (event: Event) => {
 }
 
 const uploadFile = (file: File) => {
+  isUploading.value = true
+  uploadingFileName.value = file.name
+  
   const fileType = getFileType(file.name)
   const newDoc: Document = {
     id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
@@ -341,7 +368,6 @@ const uploadFile = (file: File) => {
   
   documents.value.unshift(newDoc)
   
-  // 模拟上传进度
   const interval = setInterval(() => {
     const doc = documents.value.find(d => d.id === newDoc.id)
     if (doc && doc.status === 'uploading') {
@@ -350,6 +376,8 @@ const uploadFile = (file: File) => {
         doc.progress = 100
         doc.status = 'completed'
         clearInterval(interval)
+        isUploading.value = false
+        uploadingFileName.value = ''
       }
     }
   }, 500)
@@ -1113,6 +1141,140 @@ onUnmounted(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 文件上传加载画面 */
+.upload-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(90, 106, 138, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+}
+
+.upload-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 40px 48px;
+  background: white;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(90, 106, 138, 0.3);
+  animation: slideUp 0.4s ease;
+  max-width: 90%;
+}
+
+.upload-spinner-container {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-spinner {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  animation: rotate 2s linear infinite;
+}
+
+.spinner-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.spinner-ring:nth-child(1) {
+  border-top-color: #A6BDFB;
+  animation-delay: 0s;
+}
+
+.spinner-ring:nth-child(2) {
+  border-right-color: #8FA8F5;
+  animation-delay: 0.15s;
+}
+
+.spinner-ring:nth-child(3) {
+  border-bottom-color: #6B8AF5;
+  animation-delay: 0.3s;
+}
+
+.upload-icon {
+  width: 32px;
+  height: 32px;
+  color: #5A7BD6;
+  animation: bounce 1s ease-in-out infinite;
+}
+
+.upload-loading-text {
+  text-align: center;
+}
+
+.upload-status {
+  font-size: 16px;
+  font-weight: 600;
+  color: #5A6B8A;
+  margin: 0 0 8px 0;
+}
+
+.upload-filename {
+  font-size: 14px;
+  color: #8A9FD8;
+  margin: 0;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { 
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  50% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
 }
 
 /* 滚动条样式 */

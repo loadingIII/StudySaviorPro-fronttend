@@ -95,6 +95,16 @@
               <span class="chat-title">{{ chat.title }}</span>
               <span class="chat-time">{{ formatDate(chat.created_at) }}</span>
             </div>
+            <button 
+              v-if="!sidebarCollapsed" 
+              class="delete-btn" 
+              @click.stop="showDeleteConfirmModal(chat.id)"
+              title="删除会话"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -248,6 +258,45 @@
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- 文件上传加载画面 - 非阻塞式，固定在右下角 -->
+        <div v-if="isUploading" class="upload-toast" :class="uploadStatus">
+          <div class="upload-toast-content">
+            <div class="upload-toast-icon">
+              <svg v-if="uploadStatus === 'uploading'" class="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" stroke-dasharray="60" stroke-dashoffset="20"/>
+              </svg>
+              <svg v-else-if="uploadStatus === 'success'" class="success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22 4 12 14.01 9 11.01"/>
+              </svg>
+              <svg v-else class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+              </svg>
+            </div>
+            <div class="upload-toast-info">
+              <p class="upload-toast-filename">{{ uploadingFileName }}</p>
+              <p class="upload-toast-status">{{ uploadStatusText }}</p>
+              <div v-if="uploadStatus === 'uploading'" class="upload-progress-bar">
+                <div class="upload-progress-fill" :style="{ width: uploadProgress + '%' }"></div>
+              </div>
+            </div>
+            <button v-if="uploadStatus === 'uploading'" class="upload-cancel-btn" @click="cancelUpload" title="取消上传">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+            <button v-else class="upload-close-btn" @click="closeUploadToast" title="关闭">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
           </div>
         </div>
       </main>
@@ -648,6 +697,29 @@
             </svg>
           </button>
         </div>
+        <div class="header-right">
+          <template v-if="isBatchDeleteMode">
+            <button class="header-btn batch-delete-btn" @click="batchDeleteMessages" title="删除选中消息">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              <span class="batch-delete-count" v-if="selectedMessages.length > 0">{{ selectedMessages.length }}</span>
+            </button>
+            <button class="header-btn cancel-batch-btn" @click="toggleBatchDeleteMode" title="取消">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </template>
+          <button v-else class="header-btn" @click="toggleBatchDeleteMode" title="批量删除">
+            <svg viewBox="0 0 24 24" fill="none" class="batch-delete-icon">
+              <rect x="3" y="3" width="18" height="18" rx="5" ry="5" class="rect-bg"/>
+              <line x1="9" y1="9" x2="15" y2="15" class="x-line"/>
+              <line x1="15" y1="9" x2="9" y2="15" class="x-line"/>
+            </svg>
+          </button>
+        </div>
       </header>
 
       <!-- 聊天内容区域 -->
@@ -662,8 +734,20 @@
             v-for="(message, index) in messages" 
             :key="index"
             class="message"
-            :class="message.role"
+            :class="[message.role, { selected: selectedMessages.includes(message.id!) }]"
           >
+            <div class="message-checkbox" 
+                 v-if="isBatchDeleteMode && message.id" 
+                 @click.stop="toggleMessageSelection(message.id)"
+                 :class="{ checked: selectedMessages.includes(message.id) }">
+              <svg v-if="selectedMessages.includes(message.id)" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="3" y="3" width="18" height="18" rx="2" fill="#6366F1"/>
+                <path d="M9 12l2 2 4-4" stroke="white" stroke-width="2" fill="none"/>
+              </svg>
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+              </svg>
+            </div>
             <div class="message-avatar" v-if="message.role === 'assistant'">
               <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="20" cy="20" r="18" fill="#99CDD8"/>
@@ -706,6 +790,11 @@
                 <button class="action-btn" title="点踩">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>
+                  </svg>
+                </button>
+                <button class="action-btn delete-message-btn" title="删除此消息" @click="deleteSingleMessage(index)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                   </svg>
                 </button>
               </div>
@@ -805,6 +894,25 @@
         </div>
       </div>
     </transition>
+
+    <!-- 删除确认弹窗 -->
+    <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="cancelDelete">
+      <div class="modal-content">
+        <div class="modal-icon warning">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </div>
+        <h3>确认删除</h3>
+        <p>确定要删除这个会话吗？删除后无法恢复。</p>
+        <div class="modal-actions">
+          <button class="modal-btn cancel" @click="cancelDelete">取消</button>
+          <button class="modal-btn confirm" @click="confirmDeleteChatSession">确认删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1009,6 +1117,10 @@ const authErrorMessage = ref('') // 认证错误消息
 const isUserScrolling = ref(false) // 用户是否正在手动滚动
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null // 滚动状态检测防抖定时器
 
+// 删除确认弹窗
+const showDeleteConfirm = ref(false)
+const sessionToDelete = ref<number | null>(null)
+
 // 获取会话列表
 const loadChatSessions = async () => {
   try {
@@ -1039,6 +1151,162 @@ const loadChatSessions = async () => {
   }
 }
 
+// 显示删除确认弹窗
+const showDeleteConfirmModal = (sessionId: number) => {
+  sessionToDelete.value = sessionId
+  showDeleteConfirm.value = true
+}
+
+// 取消删除
+const cancelDelete = () => {
+  showDeleteConfirm.value = false
+  sessionToDelete.value = null
+}
+
+// 确认删除会话
+const confirmDeleteChatSession = async () => {
+  if (!sessionToDelete.value) return
+  
+  const sessionId = sessionToDelete.value
+  showDeleteConfirm.value = false
+  sessionToDelete.value = null
+  
+  try {
+    const token = getToken()
+    const response = await fetch(`/agent/question/delete_chat_session/${sessionId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': token || ''
+      }
+    })
+    
+    const result = await response.json()
+    console.log('删除会话响应:', result)
+    
+    if (response.status === 401 || (result.code === 0 && result.message === 'Not authenticated')) {
+      checkAuthError(result)
+      return
+    }
+    
+    if (result.code === 1) {
+      showMessage('会话已成功删除', 'success')
+      // 从列表中移除已删除的会话
+      chatHistory.value = chatHistory.value.filter(chat => chat.id !== sessionId)
+      // 如果删除的是当前会话，清空当前会话
+      if (currentChatId.value === sessionId) {
+        currentChatId.value = null
+        messages.value = [
+          {
+            role: 'assistant',
+            content: '你好！我是你的 AI 助手，有什么我可以帮助你的吗？',
+            time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+          }
+        ]
+      }
+    } else {
+      showMessage(result.message || '删除失败', 'error')
+    }
+  } catch (error) {
+    console.error('删除会话失败:', error)
+    showMessage('删除会话失败', 'error')
+  }
+}
+
+const toggleBatchDeleteMode = () => {
+  isBatchDeleteMode.value = !isBatchDeleteMode.value
+  if (!isBatchDeleteMode.value) {
+    selectedMessages.value = []
+  }
+}
+
+const toggleMessageSelection = (messageId: number) => {
+  const index = selectedMessages.value.indexOf(messageId)
+  if (index === -1) {
+    selectedMessages.value.push(messageId)
+  } else {
+    selectedMessages.value.splice(index, 1)
+  }
+}
+
+const batchDeleteMessages = async () => {
+  if (selectedMessages.value.length === 0) {
+    showMessage('请选择要删除的消息', 'warning')
+    return
+  }
+  
+  try {
+    const token = getToken()
+    const response = await fetch('/agent/question/delete_chat_history', {
+      method: 'POST',
+      headers: {
+        'Authorization': token || '',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(selectedMessages.value)
+    })
+    
+    const result = await response.json()
+    console.log('批量删除响应:', result)
+    
+    if (response.status === 401 || (result.code === 0 && result.message === 'Not authenticated')) {
+      checkAuthError(result)
+      return
+    }
+    
+    if (result.code === 1) {
+      showMessage('消息删除成功', 'success')
+      // 从消息列表中移除已删除的消息
+      messages.value = messages.value.filter(msg => !selectedMessages.value.includes(msg.id!))
+      selectedMessages.value = []
+      isBatchDeleteMode.value = false
+    } else {
+      showMessage(result.message || '删除失败', 'error')
+    }
+  } catch (error) {
+    console.error('批量删除消息失败:', error)
+    showMessage('删除消息失败', 'error')
+  }
+}
+
+const deleteSingleMessage = async (messageIndex: number) => {
+  const message = messages.value[messageIndex]
+  if (!message || !message.id) {
+    showMessage('消息 ID 不存在', 'error')
+    return
+  }
+  
+  try {
+    const token = getToken()
+    const response = await fetch('/agent/question/delete_chat_history', {
+      method: 'POST',
+      headers: {
+        'Authorization': token || '',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify([message.id])
+    })
+    
+    const result = await response.json()
+    console.log('删除单条消息响应:', result)
+    
+    if (response.status === 401 || (result.code === 0 && result.message === 'Not authenticated')) {
+      checkAuthError(result)
+      return
+    }
+    
+    if (result.code === 1) {
+      showMessage('消息删除成功', 'success')
+      // 从消息列表中移除已删除的消息
+      messages.value.splice(messageIndex, 1)
+    } else {
+      showMessage(result.message || '删除失败', 'error')
+    }
+  } catch (error) {
+    console.error('删除单条消息失败:', error)
+    showMessage('删除消息失败', 'error')
+  }
+}
+
 // 获取会话历史
 const loadChatHistory = async (sessionId: number) => {
   try {
@@ -1055,6 +1323,7 @@ const loadChatHistory = async (sessionId: number) => {
     
     if (result.code === 1 && result.data && Array.isArray(result.data)) {
       messages.value = result.data.map((chat: any) => ({
+        id: chat.id,
         role: chat.role === 0 ? 'user' : 'assistant',
         content: chat.content,
         time: new Date(chat.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
@@ -1120,6 +1389,13 @@ const handleScroll = () => {
 
 // 知识库相关数据
 const knowledgeLoading = ref(false)
+const isUploading = ref(false)
+const uploadingFileName = ref('')
+const uploadProgress = ref(0)
+const uploadStatus = ref<'uploading' | 'success' | 'error'>('uploading')
+const uploadAbortController = ref<AbortController | null>(null)
+const uploadStartTime = ref<number>(0)
+const uploadLongTimeWarning = ref(false)
 const knowledgeDocuments = ref<Array<{
   id: string
   file_id: string
@@ -1248,6 +1524,48 @@ const triggerUpload = () => {
   }
 }
 
+// 上传状态文本计算属性
+const uploadStatusText = computed(() => {
+  switch (uploadStatus.value) {
+    case 'uploading':
+      if (uploadLongTimeWarning.value) {
+        return '传输需较长时间，请耐心等待'
+      }
+      return `上传中 ${uploadProgress.value}%`
+    case 'success':
+      return '上传成功'
+    case 'error':
+      return '上传失败'
+    default:
+      return ''
+  }
+})
+
+// 取消上传
+const cancelUpload = () => {
+  if (uploadAbortController.value) {
+    uploadAbortController.value.abort()
+    uploadAbortController.value = null
+  }
+  uploadStatus.value = 'error'
+  uploadProgress.value = 0
+  showMessage('上传已取消', 'info')
+  setTimeout(() => {
+    closeUploadToast()
+  }, 2000)
+}
+
+// 关闭上传提示
+const closeUploadToast = () => {
+  isUploading.value = false
+  uploadingFileName.value = ''
+  uploadProgress.value = 0
+  uploadStatus.value = 'uploading'
+  uploadAbortController.value = null
+  uploadLongTimeWarning.value = false
+  uploadStartTime.value = 0
+}
+
 // 处理文件上传
 const handleFileUpload = async (event: Event) => {
   const target = event.target as HTMLInputElement
@@ -1255,21 +1573,52 @@ const handleFileUpload = async (event: Event) => {
   
   if (!file) return
   
+  isUploading.value = true
+  uploadingFileName.value = file.name
+  uploadStatus.value = 'uploading'
+  uploadProgress.value = 0
+  uploadStartTime.value = Date.now()
+  uploadLongTimeWarning.value = false
+  
+  // 创建 AbortController 用于取消上传
+  uploadAbortController.value = new AbortController()
+  
+  // 30秒后显示长时间等待提示
+  const longTimeWarningTimeout = setTimeout(() => {
+    if (uploadStatus.value === 'uploading') {
+      uploadLongTimeWarning.value = true
+    }
+  }, 30000)
+  
   // 验证文件类型
   const allowedTypes = ['.pdf', '.txt', '.doc', '.docx']
   const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase()
   
   if (!allowedTypes.includes(fileExtension)) {
-    alert('不支持的文件格式！请上传 PDF、TXT、DOC 或 DOCX 格式的文件。')
+    uploadStatus.value = 'error'
+    showMessage('不支持的文件格式！请上传 PDF、TXT、DOC 或 DOCX 格式的文件。', 'error')
+    setTimeout(() => closeUploadToast(), 3000)
+    if (target) target.value = ''
     return
   }
   
   // 验证文件大小（限制 10MB）
   const maxSize = 10 * 1024 * 1024
   if (file.size > maxSize) {
-    alert('文件大小不能超过 10MB！')
+    uploadStatus.value = 'error'
+    showMessage('文件大小不能超过 10MB！', 'error')
+    setTimeout(() => closeUploadToast(), 3000)
+    if (target) target.value = ''
     return
   }
+  
+  // 模拟进度更新
+  const progressInterval = setInterval(() => {
+    if (uploadProgress.value < 90 && uploadStatus.value === 'uploading') {
+      uploadProgress.value += Math.floor(Math.random() * 15) + 5
+      if (uploadProgress.value > 90) uploadProgress.value = 90
+    }
+  }, 300)
   
   try {
     // 创建 FormData 对象
@@ -1283,8 +1632,12 @@ const handleFileUpload = async (event: Event) => {
       headers: {
         'Authorization': token || ''
       },
-      body: formData
+      body: formData,
+      signal: uploadAbortController.value.signal
     })
+    
+    clearInterval(progressInterval)
+    clearTimeout(longTimeWarningTimeout)
     
     console.log('响应状态:', response.status)
     console.log('响应 OK:', response.ok)
@@ -1297,25 +1650,42 @@ const handleFileUpload = async (event: Event) => {
     
     // 检查认证错误 (包括 401 状态码和 code=0 的情况)
     if (response.status === 401 || (result.code === 0 && result.message === 'Not authenticated')) {
+      uploadStatus.value = 'error'
       checkAuthError(result)
+      setTimeout(() => closeUploadToast(), 3000)
       return
     }
     
     // 根据返回的 code 判断是否成功
     if (result.code === 1) {
+      uploadProgress.value = 100
+      uploadStatus.value = 'success'
       showMessage(result.message || `文件 "${file.name}" 上传成功！`, 'success')
       // 上传成功后刷新文档列表
       await loadKnowledgeDocuments()
+      // 2秒后自动关闭成功提示
+      setTimeout(() => closeUploadToast(), 2000)
     } else {
+      uploadStatus.value = 'error'
       showMessage(result.message || '上传失败：未知错误', 'error')
     }
 
   } catch (error) {
+    clearInterval(progressInterval)
+    clearTimeout(longTimeWarningTimeout)
+    
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log('上传被取消')
+      return
+    }
+    
     console.error('上传失败:', error)
     console.error('错误详情:', JSON.stringify(error))
+    uploadStatus.value = 'error'
     showMessage('文件上传失败，请稍后重试', 'error')
   } finally {
-    // 上传完成后重置 input
+    uploadAbortController.value = null
+    // 重置 input
     if (target) {
       target.value = ''
     }
@@ -1780,13 +2150,21 @@ const chatHistory = ref<Array<{
 const currentChatId = ref<number | null>(null)
 const newSessionId = ref<string | null>(null) // 存储新建对话的 session_id
 
-const messages = ref([
+const messages = ref<Array<{
+  id?: number
+  role: string
+  content: string
+  time: string
+}>>([
   {
     role: 'assistant',
     content: '你好！我是你的 AI 助手，有什么我可以帮助你的吗？',
     time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   }
 ])
+
+const selectedMessages = ref<number[]>([])
+const isBatchDeleteMode = ref(false)
 
 const startNewChat = async () => {
   try {
@@ -1890,7 +2268,7 @@ const sendNormalMessage = async (question: string) => {
       sessionId = newSessionId.value
     } else {
       // 默认情况（首次对话）
-      sessionId = 'default_session'
+      sessionId = 0
     }
     
     const token = getToken()
@@ -2428,6 +2806,7 @@ const sendStreamMessage = async (question: string) => {
   justify-content: flex-start;
   background: transparent;
   margin-bottom: 4px;
+  position: relative;
 }
 
 .history-item:hover {
@@ -2478,6 +2857,39 @@ const sendStreamMessage = async (question: string) => {
   color: #9CA3AF;
   text-align: left;
   line-height: 1;
+}
+
+.history-item .delete-btn {
+  display: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  background: #FEE2E2;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #EF4444;
+  transition: all 0.2s ease;
+}
+
+.history-item:hover .delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.history-item .delete-btn:hover {
+  background: #FECACA;
+  transform: translateY(-50%) scale(1.1);
+}
+
+.history-item .delete-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .history-item.active .chat-title {
@@ -3938,6 +4350,7 @@ const sendStreamMessage = async (question: string) => {
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+  position: relative;
 }
 
 /* 统计卡片 */
@@ -4405,6 +4818,74 @@ const sendStreamMessage = async (question: string) => {
   height: 20px;
 }
 
+.batch-delete-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.batch-delete-icon .rect-bg {
+  fill: rgba(111, 179, 198, 0.15);
+  stroke: #6FB3C6;
+  stroke-width: 1.5;
+  transition: all 0.3s ease;
+}
+
+.batch-delete-icon .x-line {
+  stroke: #6FB3C6;
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: all 0.3s ease;
+}
+
+.header-btn:hover .batch-delete-icon .rect-bg {
+  fill: rgba(111, 179, 198, 0.3);
+  stroke: #5BA3C9;
+}
+
+.header-btn:hover .batch-delete-icon .x-line {
+  stroke: #5BA3C9;
+}
+
+.batch-delete-btn {
+  position: relative;
+  background: #FEE2E2;
+  color: #EF4444;
+}
+
+.batch-delete-btn:hover {
+  background: #FECACA;
+}
+
+.batch-delete-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #EF4444;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.cancel-batch-btn {
+  margin-left: 4px;
+}
+
+.delete-message-btn {
+  color: #EF4444;
+}
+
+.delete-message-btn:hover {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+
 /* 聊天内容区域 */
 .chat-content {
   flex: 1;
@@ -4451,6 +4932,91 @@ const sendStreamMessage = async (question: string) => {
   display: flex;
   gap: 12px;
   animation: messageSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  align-items: flex-start;
+}
+
+.message-checkbox {
+  position: absolute;
+  left: -40px;
+  top: 12px;
+  transform: none;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: all 0.2s ease;
+  z-index: 10;
+  align-self: flex-start;
+}
+
+.message-checkbox svg {
+  width: 20px;
+  height: 20px;
+  transition: all 0.2s ease;
+}
+
+/* 批量删除模式下，未选中的复选框显示红色边框 */
+.message-checkbox:not(.checked) svg rect {
+  stroke: #EF4444;
+  stroke-width: 2;
+}
+
+/* 批量删除模式下，未选中的复选框悬停时显示红色背景 */
+.message-checkbox:not(.checked):hover svg rect {
+  fill: rgba(239, 68, 68, 0.1);
+}
+
+/* 选中的复选框 */
+.message-checkbox.checked svg rect {
+  fill: #EF4444;
+  stroke: #EF4444;
+}
+
+.message-checkbox.checked svg {
+  filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.5));
+}
+
+.message.selected {
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: 8px;
+  padding: 4px;
+  margin: -4px;
+}
+
+.message-delete-checkbox {
+  position: relative;
+  right: auto;
+  top: auto;
+  transform: none;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 100;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.is-batch-mode .message-delete-checkbox,
+.message.selected .message-delete-checkbox {
+  opacity: 1;
+}
+
+.message-delete-checkbox svg {
+  width: 20px;
+  height: 20px;
+}
+
+.message-delete-checkbox.checked {
+  transform: scale(1.1);
 }
 
 @keyframes messageSlideIn {
@@ -4470,6 +5036,7 @@ const sendStreamMessage = async (question: string) => {
 
 .message-avatar {
   flex-shrink: 0;
+  align-self: flex-start;
 }
 
 .message-avatar svg {
@@ -5086,6 +5653,177 @@ textarea::placeholder {
   transform: translateX(-50%) translateY(-20px);
 }
 
+/* 文件上传 Toast 提示 - 非阻塞式 */
+.upload-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  animation: slideInRight 0.3s ease;
+}
+
+.upload-toast-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(90, 106, 138, 0.25);
+  min-width: 320px;
+  max-width: 400px;
+  border-left: 4px solid #A6BDFB;
+}
+
+.upload-toast.success .upload-toast-content {
+  border-left-color: #6BCB77;
+}
+
+.upload-toast.error .upload-toast-content {
+  border-left-color: #FF6B6B;
+}
+
+.upload-toast-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.upload-toast-icon .spinner {
+  width: 28px;
+  height: 28px;
+  color: #A6BDFB;
+  animation: rotate 1s linear infinite;
+}
+
+.upload-toast-icon .success-icon {
+  width: 28px;
+  height: 28px;
+  color: #6BCB77;
+}
+
+.upload-toast-icon .error-icon {
+  width: 28px;
+  height: 28px;
+  color: #FF6B6B;
+}
+
+.upload-toast-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.upload-toast-filename {
+  font-size: 14px;
+  font-weight: 600;
+  color: #5A6B8A;
+  margin: 0 0 4px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-toast-status {
+  font-size: 12px;
+  color: #8A9FD8;
+  margin: 0 0 8px 0;
+}
+
+.upload-progress-bar {
+  height: 4px;
+  background: #E8EFFF;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #A6BDFB 0%, #8FA8F5 100%);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.upload-toast.success .upload-progress-fill {
+  background: linear-gradient(90deg, #6BCB77 0%, #5CB85C 100%);
+}
+
+.upload-toast.error .upload-progress-fill {
+  background: linear-gradient(90deg, #FF6B6B 0%, #FF5252 100%);
+}
+
+.upload-cancel-btn,
+.upload-close-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.upload-cancel-btn {
+  color: #8A9FD8;
+}
+
+.upload-cancel-btn:hover {
+  background: #FFF0F0;
+  color: #FF6B6B;
+}
+
+.upload-close-btn {
+  color: #8A9FD8;
+}
+
+.upload-close-btn:hover {
+  background: #F5F8FF;
+  color: #5A7BD6;
+}
+
+.upload-cancel-btn svg,
+.upload-close-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .upload-toast {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+  }
+  
+  .upload-toast-content {
+    min-width: auto;
+    max-width: none;
+    width: 100%;
+  }
+}
+
 /* 认证错误弹窗样式 */
 .modal-overlay {
   position: fixed;
@@ -5401,6 +6139,124 @@ textarea::placeholder {
   .send-btn {
     min-width: 48px;
     min-height: 48px;
+  }
+}
+
+/* 删除确认弹窗 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(90, 107, 138, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.3s ease;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 20px;
+  padding: 32px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease;
+}
+
+.modal-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+}
+
+.modal-icon.warning {
+  background: linear-gradient(135deg, #FFE8E8 0%, #FFF0F0 100%);
+  color: #FF6B6B;
+}
+
+.modal-icon svg {
+  width: 32px;
+  height: 32px;
+}
+
+.modal-content h3 {
+  font-size: 20px;
+  color: #5A6B8A;
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+
+.modal-content p {
+  font-size: 14px;
+  color: #8A9A9A;
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.modal-btn {
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.modal-btn.cancel {
+  background: #F5F8FF;
+  color: #8A9A9A;
+}
+
+.modal-btn.cancel:hover {
+  background: #E8EFFF;
+  color: #5A7BD6;
+}
+
+.modal-btn.confirm {
+  background: linear-gradient(135deg, #FF6B6B 0%, #FF5252 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.35);
+}
+
+.modal-btn.confirm:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.45);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
