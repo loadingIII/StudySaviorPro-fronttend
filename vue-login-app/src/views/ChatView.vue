@@ -13,11 +13,6 @@
           </svg>
           <span>StudySaviorPro</span>
         </div>
-        <button class="collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-        </button>
       </div>
 
       <!-- 功能模块 -->
@@ -121,13 +116,6 @@
       <main class="knowledge-main" v-if="currentModule === 'knowledge'">
         <header class="chat-header">
           <div class="header-left">
-            <button class="menu-toggle" @click="toggleSidebar">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="3" y1="12" x2="21" y2="12"/>
-                <line x1="3" y1="6" x2="21" y2="6"/>
-                <line x1="3" y1="18" x2="21" y2="18"/>
-              </svg>
-            </button>
             <div class="model-selector">
               <span>知识库</span>
             </div>
@@ -305,13 +293,6 @@
     <main class="knowledge-main" v-if="currentModule === 'quiz'">
       <header class="chat-header">
         <div class="header-left">
-          <button class="menu-toggle" @click="toggleSidebar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="3" y1="12" x2="21" y2="12"/>
-              <line x1="3" y1="6" x2="21" y2="6"/>
-              <line x1="3" y1="18" x2="21" y2="18"/>
-            </svg>
-          </button>
           <div class="model-selector">
             <span>智能出题</span>
           </div>
@@ -689,13 +670,6 @@
       <!-- 顶部导航 -->
       <header class="chat-header">
         <div class="header-left">
-          <button class="menu-toggle" @click="toggleSidebar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="3" y1="12" x2="21" y2="12"/>
-              <line x1="3" y1="6" x2="21" y2="6"/>
-              <line x1="3" y1="18" x2="21" y2="18"/>
-            </svg>
-          </button>
         </div>
         <div class="header-right">
           <template v-if="isBatchDeleteMode">
@@ -2108,15 +2082,6 @@ const checkMobile = () => {
   }
 }
 
-// 切换侧边栏
-const toggleSidebar = () => {
-  if (isMobile.value) {
-    showSidebar.value = !showSidebar.value
-  } else {
-    sidebarCollapsed.value = !sidebarCollapsed.value
-  }
-}
-
 onMounted(() => {
   console.log('=== onMounted 开始执行 ===')
   console.log('currentModule:', currentModule.value)
@@ -2166,7 +2131,8 @@ const messages = ref<Array<{
 const selectedMessages = ref<number[]>([])
 const isBatchDeleteMode = ref(false)
 
-const startNewChat = async () => {
+// 获取新的 session_id
+const getNewSessionId = async (): Promise<string | null> => {
   try {
     const token = getToken()
     const response = await fetch('/agent/question/get_new_session_id', {
@@ -2177,16 +2143,31 @@ const startNewChat = async () => {
     })
     
     const result = await response.json()
-    console.log('新建会话响应:', result)
+    console.log('获取新 session_id 响应:', result)
     
     if (result.code === 1 && result.data) {
+      newSessionId.value = result.data
+      return result.data
+    } else {
+      console.warn('获取 session_id 失败:', result)
+      return null
+    }
+  } catch (error) {
+    console.error('获取 session_id 错误:', error)
+    return null
+  }
+}
+
+const startNewChat = async () => {
+  try {
+    const sessionId = await getNewSessionId()
+    
+    if (sessionId) {
       messages.value = []
       currentChatId.value = 0
-      newSessionId.value = result.data // 存储新的 session_id
       showMessage('新建会话成功', 'success')
       await loadChatSessions()
     } else {
-      console.warn('新建会话失败:', result)
       showMessage('新建会话失败', 'error')
     }
   } catch (error) {
@@ -2196,6 +2177,7 @@ const startNewChat = async () => {
 }
 
 const selectChat = async (id: number) => {
+  currentModule.value = 'qa' // 切换到智能问答模块
   currentChatId.value = id
   newSessionId.value = null // 选中历史会话时清空 newSessionId
   
@@ -2260,6 +2242,7 @@ const sendMessage = async () => {
 const sendNormalMessage = async (question: string) => {
   try {
     let sessionId: string | number
+    
     if (currentChatId.value && currentChatId.value !== 0) {
       // 选中历史会话
       sessionId = currentChatId.value
@@ -2267,8 +2250,14 @@ const sendNormalMessage = async (question: string) => {
       // 新建对话，使用存储的 session_id
       sessionId = newSessionId.value
     } else {
-      // 默认情况（首次对话）
-      sessionId = 0
+      // 没有 session_id，先获取新的 session_id
+      const newId = await getNewSessionId()
+      if (!newId) {
+        showMessage('获取会话ID失败，请重试', 'error')
+        isSending.value = false
+        return
+      }
+      sessionId = newId
     }
     
     const token = getToken()
@@ -2340,6 +2329,7 @@ const sendStreamMessage = async (question: string) => {
 
   try {
     let sessionId: string | number
+    
     if (currentChatId.value && currentChatId.value !== 0) {
       // 选中历史会话
       sessionId = currentChatId.value
@@ -2347,8 +2337,15 @@ const sendStreamMessage = async (question: string) => {
       // 新建对话，使用存储的 session_id
       sessionId = newSessionId.value
     } else {
-      // 默认情况（首次对话）
-      sessionId = 'default_session'
+      // 没有 session_id，先获取新的 session_id
+      const newId = await getNewSessionId()
+      if (!newId) {
+        showMessage('获取会话ID失败，请重试', 'error')
+        aiMessage.content = '获取会话ID失败，请重试'
+        isSending.value = false
+        return
+      }
+      sessionId = newId
     }
     
     const token = getToken()
@@ -2529,33 +2526,6 @@ const sendStreamMessage = async (question: string) => {
 .logo svg {
   width: 32px;
   height: 32px;
-}
-
-.collapse-btn {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #657166;
-  border-radius: 8px;
-  transition: background 0.3s ease;
-}
-
-.collapse-btn:hover {
-  background: #F5F9FA;
-}
-
-.collapse-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
-.sidebar.collapsed .collapse-btn svg {
-  transform: rotate(180deg);
 }
 
 .new-chat-btn {
@@ -4739,30 +4709,6 @@ const sendStreamMessage = async (question: string) => {
   gap: 16px;
 }
 
-.menu-toggle {
-  width: 36px;
-  height: 36px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #657166;
-  border-radius: 8px;
-  transition: all 0.3s ease;
-}
-
-.menu-toggle:hover {
-  background: #F5F9FA;
-  color: #5BA3C9;
-}
-
-.menu-toggle svg {
-  width: 24px;
-  height: 24px;
-}
-
 .model-selector {
   display: flex;
   align-items: center;
@@ -6129,9 +6075,7 @@ textarea::placeholder {
     padding: 10px 12px;
   }
   
-  .header-btn,
-  .menu-toggle,
-  .collapse-btn {
+  .header-btn {
     min-width: 44px;
     min-height: 44px;
   }
