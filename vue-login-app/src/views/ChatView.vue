@@ -800,15 +800,6 @@
                   <line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
               </button>
-              <label class="stream-toggle" title="流式输出">
-                <input type="checkbox" v-model="isStreamMode" />
-                <span class="toggle-slider">
-                  <svg class="toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                  </svg>
-                </span>
-                <span class="toggle-label">流式</span>
-              </label>
             </div>
             <button class="send-btn" @click="sendMessage" :disabled="!inputMessage.trim() || isSending">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1085,7 +1076,6 @@ const getOptionClass = (item: any, optionKey: string): string => {
 const showToast = ref(false)
 const toastMessage = ref('')
 const toastType = ref<'success' | 'error'>('success')
-const isStreamMode = ref(false) // 流式输出开关
 const showAuthError = ref(false) // 认证错误弹窗
 const authErrorMessage = ref('') // 认证错误消息
 const isUserScrolling = ref(false) // 用户是否正在手动滚动
@@ -2231,89 +2221,7 @@ const sendMessage = async () => {
     scrollToBottom(true, 5, 100)
   })
 
-  if (isStreamMode.value) {
-    await sendStreamMessage(question)
-  } else {
-    await sendNormalMessage(question)
-  }
-}
-
-// 普通消息发送
-const sendNormalMessage = async (question: string) => {
-  try {
-    let sessionId: string | number
-    
-    if (currentChatId.value && currentChatId.value !== 0) {
-      // 选中历史会话
-      sessionId = currentChatId.value
-    } else if (newSessionId.value) {
-      // 新建对话，使用存储的 session_id
-      sessionId = newSessionId.value
-    } else {
-      // 没有 session_id，先获取新的 session_id
-      const newId = await getNewSessionId()
-      if (!newId) {
-        showMessage('获取会话ID失败，请重试', 'error')
-        isSending.value = false
-        return
-      }
-      sessionId = newId
-    }
-    
-    const token = getToken()
-    const response = await fetch('/agent/question/invoke', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token || ''
-      },
-      body: JSON.stringify({
-        question: question,
-        session_id: sessionId
-      })
-    })
-
-    // 先读取响应内容
-    const result = await response.json()
-    console.log('API 响应:', result)
-
-    // 检查认证错误 (包括 401 状态码和 code=0 的情况)
-    if (response.status === 401 || (result.code === 0 && result.message === 'Not authenticated')) {
-      checkAuthError(result)
-      isSending.value = false
-      return
-    }
-
-    if (result.code === 1 && result.data) {
-      const aiMessage = {
-        role: 'assistant',
-        content: result.data.response || '未收到回复内容',
-        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-      }
-      messages.value.push(aiMessage)
-    } else {
-      const aiMessage = {
-        role: 'assistant',
-        content: result.message || '请求失败，请稍后重试',
-        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-      }
-      messages.value.push(aiMessage)
-    }
-  } catch (error) {
-    console.error('Send message error:', error)
-    const aiMessage = {
-      role: 'assistant',
-      content: '连接服务器失败，请稍后重试',
-      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-    }
-    messages.value.push(aiMessage)
-  } finally {
-    isSending.value = false
-    
-    nextTick(() => {
-      scrollToBottom(true, 5, 100)
-    })
-  }
+  await sendStreamMessage(question)
 }
 
 // 流式消息发送
@@ -5377,85 +5285,8 @@ textarea::placeholder {
   height: 20px;
 }
 
-/* 流式输出开关 */
-.stream-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  user-select: none;
-  padding: 4px 8px;
-  border-radius: 8px;
-  transition: all 0.3s ease;
-}
-
-.stream-toggle:hover {
-  background: #E8F4F8;
-}
-
-.stream-toggle input {
-  display: none;
-}
-
-.toggle-slider {
-  width: 36px;
-  height: 20px;
-  background: #D4DDFD;
-  border-radius: 10px;
-  position: relative;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.toggle-slider::before {
-  content: '';
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 16px;
-  height: 16px;
-  background: white;
-  border-radius: 50%;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.toggle-icon {
-  width: 12px;
-  height: 12px;
-  color: white;
-  opacity: 0;
-  transition: all 0.3s ease;
-  z-index: 1;
-}
-
-.stream-toggle input:checked + .toggle-slider {
-  background: linear-gradient(135deg, #A6BDFB 0%, #8FA8F5 100%);
-}
-
-.stream-toggle input:checked + .toggle-slider::before {
-  left: 18px;
-}
-
-.stream-toggle input:checked + .toggle-slider .toggle-icon {
-  opacity: 1;
-}
-
-.toggle-label {
-  font-size: 12px;
-  color: #8A9A9A;
-  font-weight: 500;
-  transition: all 0.3s ease;
-}
-
-.stream-toggle input:checked ~ .toggle-label {
-  color: #5A7BD6;
-}
-
+/* 发送按钮 */
 .send-btn {
-  width: 40px;
   height: 40px;
   border: none;
   background: linear-gradient(135deg, #A6BDFB 0%, #8FA8F5 100%);
